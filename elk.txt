@@ -1,0 +1,764 @@
+vim /etc/sysconfig/network-scripts/ifcfg-ens33
+IPADDR="192.168.200.21"
+NETMASK="255.255.255.0"
+GATEWAY="192.168.200.1"
+systemctl restart network
+
+hostnamectl set-hostname elk-node1
+vim /etc/hosts
+192.168.200.21 elk-node1
+tar zxvf jdk-8u144-linux-x64.tar.gz -C /usr/local/
+ln -s /usr/local/jdk1.8.0_144 /usr/local/jdk
+##################环境变量配置#############3
+export JAVA_HOME=/usr/local/jdk
+export JRE_HOME=$JAVA_HOME/jre
+export CLASSPATH=$JAVA_HOME/lib:$JRE_HOME/lib:$CLASSPATH
+export PATH=$JAVA_HOME/bin:$JRE_HOME/bin:$PATH
+source /etc/profile
+
+tar zxvf /usr/local/src/elasticsearch-5.2.2.tar.gz -C /usr/local/
+ln -s /usr/local/elasticsearch-5.2.2 /usr/local/elasticsearch
+
+/usr/local/elasticsearch/bin/elasticsearch
+提示内存问题
+vim config/jvm.options
+-Xms512m
+-Xmx512m
+/usr/local/elasticsearch/bin/elasticsearch
+提示不能以root运行
+[root@elk-node1 elasticsearch]# chown -R elk:elk /usr/local/elasticsearch
+[root@elk-node1 elasticsearch]# chown -R elk:elk /usr/local/elasticsearch/*
+
+/usr/local/elasticsearch/bin/elasticsearch
+提示不能访问path.data，应该是没有配置
+[2017-09-09T22:51:37,709][WARN ][o.e.b.ElasticsearchUncaughtExceptionHandler] [] uncaught exception in thread [main]
+org.elasticsearch.bootstrap.StartupException: java.lang.IllegalStateException: Unable to access 'path.data' 
+
+vim config/elasticsearch.yml
+##############基本配置#################
+cluster.name: elk-cluster                       # 组名（同一个组，组名必须一致）
+node.name: elk-node1                            # 节点名称，建议和主机名一致
+path.data: /data/es-data                        # 数据存放的路径
+path.logs: /var/log/elasticsearch/              # 日志存放的路径
+bootstrap.mlockall: false                        # 锁住内存，不被使用到交换分区去
+network.host: 0.0.0.0                           # 网络设置
+http.port: 9200                                 # 端口
+
+mkdir -p /data/es-data
+mkdir -p /var/log/elasticsearch
+
+[elk@elk-node1 ~]$ /usr/local/elasticsearch/bin/elasticsearch
+2017-09-09 23:03:47,982 main ERROR Unable to create file /var/log/elasticsearch/elk-cluster.log java.io.IOException: 权限不够
+修改权限
+chown -R elk:elk /var/log/elasticsearch
+chown -R elk:elk /data/es-data
+
+unknown setting [bootstrap.mlockall] please check that any required plugins are installed, 
+or check the breaking changes documentation for removed settings
+
+把bootstrap.mlockall: true 修改为： bootstrap.memory_lock: true
+
+max file descriptors [65535] for elasticsearch process is too low, increase to at least [65536]
+vim /etc/security/limits.conf
+* soft nofile 65536
+* hard nofile 131072
+* soft nproc 2048
+* hard nproc 4096
+memory locking requested for elasticsearch process but memory is not locked
+	bootstrap.memory_lock: false
+max virtual memory areas vm.max_map_count [65530] is too low, increase to at least [262144]
+修改/etc/sysctl.conf配置文件，
+cat /etc/sysctl.conf | grep vm.max_map_count
+vm.max_map_count=262144
+如果不存在则添加
+echo "vm.max_map_count=262144" >>/etc/sysctl.conf
+
+
+终于启动成功
+测试：
+curl -i -XGET 'http://192.168.200.21:9200/_count?pretty' -d '{"query":{"match_all":{}}}'
+浏览器测试：
+http://192.168.200.21:9200
+
+
+安装head插件  参考:http://blog.csdn.net/mergerly/article/details/53412417
+首先安装nodejs
+wget https://nodejs.org/dist/v6.11.3/node-v6.11.3-linux-x64.tar.xz
+yum -y install xz
+xz -d /usr/local/src/node-v6.11.3-linux-x64.tar.xz
+tar xf /usr/local/src/node-v6.11.3-linux-x64.tar -C /usr/local/
+ln -s /usr/local/node-v6.11.3-linux-x64 /usr/local/node
+vim /etc/profile
+###NODE###
+export NODE_HOME=/usr/local/node
+###所有PATH###
+export PATH=$NODE_HOME/bin:$JAVA_HOME/bin:$JRE_HOME/bin:$PATH
+source /etc/profile
+检查:node -v npm -v
+
+npm install -g grunt-cli --registry=https://registry.npm.taobao.org
+grunt -version
+
+yum -y install git
+mkdir -p /usr/local/elasticsearch-plugin/head/ 
+chown -R elk:elk /usr/local/elasticsearch-plugin
+cd /usr/local/elasticsearch-plugin/head/
+git clone git://github.com/mobz/elasticsearch-head.git
+
+修改服务器监听地址 目录：head/Gruntfile.js 增加hostname属性，设置为*
+connect: {
+    server: {
+        options: {
+            port: 9100,
+            hostname: '*',
+            base: '.',
+            keepalive: true
+        }
+    }
+}
+
+修改连接地址：目录：head/_site/app.js
+把localhost修改成你es的服务器地址，如:
+this.base_uri = this.config.base_uri || this.prefs.get("app-base_uri") || "http://192.168.200.21:9200";
+
+vim /usr/local/elasticsearch/config/elasticsearch.yml
+# 增加新的参数，这样head插件可以访问es
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+启动 elasticsearch
+
+cd /usr/local/elasticsearch-plugin/head/elasticsearch-head/
+npm install --registry=https://registry.npm.taobao.org
+有一个phantomjs-2.1.1-linux-x86_64.tar.bz2 无法下载，翻墙下载后放入到/tmp/phantomjs/下
+再次执行，如果失败删除/usr/local/elasticsearch-plugin/head/elasticsearch-head/node_modules/后再次执行
+成功后执行 grunt server
+
+vim /etc/security/limits.conf
+elk soft memlock unlimited
+elk hard memlock unlimited
+
+discovery.zen.ping.unicast.hosts: ["192.168.200.21", "192.168.200.22"]
+=============================================================================================================================
+elasticsearch
+ELK-node1
+安装JDK
+tar zxvf /usr/local/src/jdk-8u144-linux-x64.tar.gz -C /usr/local/
+ln -s /usr/local/jdk1.8.0_144 /usr/local/jdk
+##################环境变量配置#############3
+export JAVA_HOME=/usr/local/jdk
+export JRE_HOME=$JAVA_HOME/jre
+export CLASSPATH=$JAVA_HOME/lib:$JRE_HOME/lib:$CLASSPATH
+export PATH=$JAVA_HOME/bin:$JRE_HOME/bin:$PATH
+source /etc/profile
+安装elasticsearch
+tar zxvf elasticsearch-5.2.2.tar.gz -C /usr/local/
+ln -s elasticsearch-5.2.2/ elasticsearch
+
+/usr/local/elasticsearch/bin/elasticsearch
+提示内存问题
+vim config/jvm.options
+-Xms512M
+-Xmx1g
+/usr/local/elasticsearch/bin/elasticsearch
+提示不能以root运行
+[root@elk-node1 elasticsearch]# chown -R elk:elk /usr/local/elasticsearch
+[root@elk-node1 elasticsearch]# chown -R elk:elk /usr/local/elasticsearch/*
+
+/usr/local/elasticsearch/bin/elasticsearch
+提示不能访问path.data，应该是没有配置
+[2017-09-09T22:51:37,709][WARN ][o.e.b.ElasticsearchUncaughtExceptionHandler] [] uncaught exception in thread [main]
+org.elasticsearch.bootstrap.StartupException: java.lang.IllegalStateException: Unable to access 'path.data' 
+
+vim config/elasticsearch.yml
+##############基本配置#################
+cluster.name: elk-cluster                       # 组名（同一个组，组名必须一致）
+node.name: elk-node1                            # 节点名称，建议和主机名一致
+path.data: /data/es-data                        # 数据存放的路径
+path.logs: /var/log/elasticsearch/              # 日志存放的路径
+bootstrap.mlockall: true                        # 锁住内存，不被使用到交换分区去
+network.host: 0.0.0.0                           # 网络设置
+http.port: 9200                                 # 端口
+
+mkdir -p /data/es-data
+mkdir -p /var/log/elasticsearch
+
+[elk@elk-node1 ~]$ /usr/local/elasticsearch/bin/elasticsearch
+2017-09-09 23:03:47,982 main ERROR Unable to create file /var/log/elasticsearch/elk-cluster.log java.io.IOException: 权限不够
+修改权限
+chown -R elk:elk /var/log/elasticsearch
+chown -R elk:elk /data/es-data
+
+unknown setting [bootstrap.mlockall] please check that any required plugins are installed, 
+or check the breaking changes documentation for removed settings
+
+把bootstrap.mlockall: true 修改为： bootstrap.memory_lock: true
+
+max file descriptors [65535] for elasticsearch process is too low, increase to at least [65536]
+vim /etc/security/limits.conf
+* soft nofile 65536
+* hard nofile 131072
+* soft nproc 2048
+* hard nproc 4096
+memory locking requested for elasticsearch process but memory is not locked
+	bootstrap.memory_lock: false
+max virtual memory areas vm.max_map_count [65530] is too low, increase to at least [262144]
+修改/etc/sysctl.conf配置文件，
+cat /etc/sysctl.conf | grep vm.max_map_count
+vm.max_map_count=262144
+如果不存在则添加
+echo "vm.max_map_count=262144" >>/etc/sysctl.conf
+
+
+终于启动成功
+测试：
+curl -i -XGET 'http://192.168.200.21:9200/_count?pretty' -d '{"query":{"match_all":{}}}'
+浏览器测试：
+http://192.168.200.21:9200
+
+安装head插件
+安装head插件  参考:http://blog.csdn.net/mergerly/article/details/53412417
+首先安装nodejs
+wget https://nodejs.org/dist/v6.11.3/node-v6.11.3-linux-x64.tar.xz
+yum -y install xz
+xz -d node-v6.11.3-linux-x64.tar.xz
+tar xf node-v6.11.3-linux-x64.tar -C /usr/local/
+vim /etc/profile
+###NODE###
+export NODE_HOME=/usr/local/node
+###所有PATH###
+export PATH=$NODE_HOME/bin:$JAVA_HOME/bin:$JRE_HOME/bin:$PATH
+source /etc/profile
+检查:node -v npm -v
+
+npm install -g grunt-cli --registry=https://registry.npm.taobao.org
+grunt -version
+
+yum -y install git
+mkdir -p /usr/local/elasticsearch-plugin/head/
+git clone git://github.com/mobz/elasticsearch-head.git
+
+修改服务器监听地址 目录：head/Gruntfile.js 增加hostname属性，设置为*
+connect: {
+    server: {
+        options: {
+            port: 9100,
+            hostname: '*',
+            base: '.',
+            keepalive: true
+        }
+    }
+}
+
+
+修改连接地址：目录：head/_site/app.js
+把localhost修改成你es的服务器地址，如:
+this.base_uri = this.config.base_uri || this.prefs.get("app-base_uri") || "http://192.168.200.21:9200";
+
+vim /usr/local/elasticsearch/config/elasticsearch.yml
+# 增加新的参数，这样head插件可以访问es
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+启动 elasticsearch
+
+cd /usr/local/elasticsearch-plugin/head/elasticsearch-head/
+npm install --registry=https://registry.npm.taobao.org
+有一个phantomjs-2.1.1-linux-x86_64.tar.bz2 无法下载，翻墙下载后放入到/tmp/phantomjs/下
+再次执行，如果失败删除/usr/local/elasticsearch-plugin/head/elasticsearch-head/node_modules/后再次执行
+成功后执行 grunt server
+
+
+
+
+启动
+nohup /usr/local/elasticsearch/bin/elasticsearch &
+cd /usr/local/elasticsearch-plugin/head/elasticsearch-head/ && nohup grunt server &
+ELK-node2
+tar zxvf jdk-8u144-linux-x64.tar.gz -C /usr/local/
+ln -s /usr/local/jdk1.8.0_144 /usr/local/jdk
+##################环境变量配置#############3
+export JAVA_HOME=/usr/local/jdk
+export JRE_HOME=$JAVA_HOME/jre
+export CLASSPATH=$JAVA_HOME/lib:$JRE_HOME/lib:$CLASSPATH
+export PATH=$JAVA_HOME/bin:$JRE_HOME/bin:$PATH
+source /etc/profile
+
+tar zxvf /usr/local/src/elasticsearch-5.2.2.tar.gz -C /usr/local/
+ln -s /usr/local/elasticsearch-5.2.2 /usr/local/elasticsearch
+
+vim config/jvm.options
+-Xms512m
+-Xmx512m
+[root@elk-node1 elasticsearch]# chown -R elk:elk /usr/local/elasticsearch
+[root@elk-node1 elasticsearch]# chown -R elk:elk /usr/local/elasticsearch/*
+vim config/elasticsearch.yml
+##############基本配置#################
+cluster.name: elk-cluster
+node.name: elk-node2
+path.data: /data/es-data
+path.logs: /var/log/elasticsearch
+bootstrap.memory_lock: false
+network.host: 0.0.0.0
+http.port: 9200
+# 增加新的参数，这样head插件可以访问es
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+mkdir -p /data/es-data
+mkdir -p /var/log/elasticsearch
+chown -R elk:elk /var/log/elasticsearch
+chown -R elk:elk /data/es-data
+
+vim /etc/security/limits.conf
+* soft nofile 65536
+* hard nofile 131072
+* soft nproc 2048
+* hard nproc 4096
+
+echo "vm.max_map_count=262144" >>/etc/sysctl.conf
+
+启动测试
+/usr/local/elasticsearch/bin/elasticsearch 
+curl -i -XGET 'http://192.168.200.22:9200/_count?pretty' -d '{"query":{"match_all":{}}}'
+安装head插件--可以不装
+yum -y install xz
+xz -d /usr/local/src/node-v6.11.3-linux-x64.tar.xz
+tar xf /usr/local/src/node-v6.11.3-linux-x64.tar -C /usr/local/
+ln -s /usr/local/node-v6.11.3-linux-x64 /usr/local/node
+npm install -g grunt-cli --registry=https://registry.npm.taobao.org
+yum -y install git
+mkdir -p /usr/local/elasticsearch-plugin/head/
+chown -R elk:elk /usr/local/elasticsearch-plugin
+cd /usr/local/elasticsearch-plugin/head/
+git clone git://github.com/mobz/elasticsearch-head.git
+
+vim /usr/local/elasticsearch-plugin/head/elasticsearch-head/Gruntfile.js
+connect: {
+    server: {
+        options: {
+            port: 9100,
+            hostname: '*',
+            base: '.',
+            keepalive: true
+        }
+    }
+}
+vim /usr/local/elasticsearch-plugin/head/elasticsearch-head/_site/app.js
+把localhost修改成你es的服务器地址，如:
+this.base_uri = this.config.base_uri || this.prefs.get("app-base_uri") || "http://192.168.200.22:9200";
+
+ELK检控插件
+bigdesk 
+http://blog.csdn.net/july_2/article/details/24702243
+kopf
+logstah
+
+ELK-node1
+安装
+tar zxf /usr/local/src/logstash-5.2.2.tar.gz -C /usr/local/
+ln -s /usr/local/logstash-5.2.2 /usr/local/logstash
+chown -R elk:elk /usr/local/logstash
+chown -R elk:elk /usr/local/logstash/*
+[root@elk-node1 ~]# chown -R elk:elk /usr/local/logstash-5.2.2
+
+安装ruby
+yum install ruby
+1）基本的输入输出
+[root@elk-node1 logstash]# ./bin/logstash  -e 'input { stdin{} } output { stdout{} }'
+Sending Logstash's logs to /usr/local/logstash/logs which is now configured via log4j2.properties
+[2017-09-10T16:04:21,819][INFO ][logstash.agent           ] No persistent UUID file found. Generating new UUID {:uuid=>"ef80fb67-e519-414e-aca5-bb3b2ce3a34b", :path=>"/usr/local/logstash/data/uuid"}
+[2017-09-10T16:04:22,090][INFO ][logstash.pipeline        ] Starting pipeline {"id"=>"main", "pipeline.workers"=>1, "pipeline.batch.size"=>125, "pipeline.batch.delay"=>5, "pipeline.max_inflight"=>125}
+The stdin plugin is now waiting for input:
+[2017-09-10T16:04:22,166][INFO ][logstash.pipeline        ] Pipeline main started
+[2017-09-10T16:04:22,304][INFO ][logstash.agent           ] Successfully started Logstash API endpoint {:port=>9600}
+2）使用rubydebug详细输出
+[root@elk-node1 logstash]# ./bin/logstash -e 'input { stdin{} } output { stdout{ codec => rubydebug} }'
+3)把内容写到elasticsearch中
+[root@elk-node1 logstash]# ./bin/logstash -e 'input { stdin{} } output { elasticsearch  { hosts => ["192.168.200.21:9200"]} }'
+成功启动后
+输入logstash-test进行测试
+
+在elasticsearch中查看
+
+4）既写到elasticsearch中又写在文件中一份
+[root@elk-node1 logstash]# ./bin/logstash -e 'input { stdin{} } output { elasticsearch  { hosts => ["192.168.200.21:9200"]} stdout{ codec => rubydebug} }'
+input{
+    stdin{
+        
+    }
+}
+output{
+    elasticsearch{
+        hosts=>[ "192.168.200.21:9200" ]
+    }
+   stdout{
+        codec=>rubydebug
+    }
+}
+
+官网配置:https://www.elastic.co/guide/en/logstash/5.2/advanced-pipeline.html
+配置
+收集单个索引日志
+收集系统日志
+vim 1-systemlog.conf
+input{
+    file{
+        path => "/var/log/messages"
+        type => "system"
+        start_position => "beginning"
+    }     
+}   
+output{
+    elasticsearch {
+        hosts => [ "192.168.200.21:9200" ]
+        index => "system-%{+YYYY.MM.dd}"
+    }   
+}
+[root@elk-node1 logstash]# ./bin/logstash -f 01-systemlog.conf
+
+收集不同索引日志
+
+
+CODEC：合并多行为1个事件
+场景：java打印堆栈异常，作为1个事件
+https://www.elastic.co/guide/en/logstash/5.2/plugins-codecs-multiline.html
+vim 3-multiline.conf
+#记录日志中的多行为logstash的1个事件
+input {
+    stdin {
+        codec => multiline {
+            pattern => "^\["
+            negate => "true"
+            what => "previous"
+        }
+    }
+}
+output {
+    stdout {
+        codec => "rubydebug"
+    }
+}
+
+./bin/logstash -f 3-multiline.conf
+测试
+[12345
+[43211
+{
+    "@timestamp" => 2017-09-10T10:05:46.798Z,
+      "@version" => "1",
+          "host" => "elk-node1",
+       "message" => "[12345"
+}
+12345
+qwert
+yuiop
+[mnb
+{
+    "@timestamp" => 2017-09-10T10:06:13.115Z,
+      "@version" => "1",
+          "host" => "elk-node1",
+       "message" => "[43211\n12345\nqwert\nyuiop",
+          "tags" => [
+        [0] "multiline"
+    ]
+}
+可以看出 必须以左中括号结束上一个事件
+
+将上面的配置合并到elk的配置中，来收集es的java日志
+vim 0-all-log.conf
+input{
+    file{
+        path => "/var/log/messages"
+        type => "system"
+        start_position => "beginning"
+    }
+    file{
+        path => "/var/log/elasticsearch/elk-cluster.log"
+        type=> "elk"
+        start_position => "beginning"
+        codec => multiline {
+            pattern => "^\["
+            negate => "true"
+            what => "previous"
+        }
+    }     
+}   
+output{
+    if [type] == "system" {
+        elasticsearch {
+            hosts => [ "192.168.200.21:9200" ]
+            index => "system-%{+YYYY.MM.dd}" 
+        }
+    }
+
+    if [type] == "elk" {
+        elasticsearch {
+            hosts => [ "192.168.200.21:9200" ]
+            index => "elk-%{+YYYY.MM.dd}" 
+        }   
+    }
+}
+收集json格式的nginx日志
+worker_processes  1;	#进程数量
+events {
+    worker_connections  1024;	#1个worker支持的并发数
+}
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+    log_format  json '{ "@timestamp": "$time_local", '
+                         '"@fields": { '
+                         '"remote_addr": "$remote_addr", '
+                         '"remote_user": "$remote_user", '
+                         '"body_bytes_sent": "$body_bytes_sent", '
+                         '"request_time": "$request_time", '
+                         '"status": "$status", '
+                         '"request": "$request", '
+                         '"request_method": "$request_method", '
+                         '"http_referrer": "$http_referer", '
+                         '"body_bytes_sent":"$body_bytes_sent", '
+                         '"http_x_forwarded_for": "$http_x_forwarded_for", '
+                         '"http_user_agent": "$http_user_agent" } }';
+    sendfile        on;		#开启高效传输模式
+    keepalive_timeout  65;
+    server {				#第一个server，表示第一个独立的虚拟主机站点
+        listen       80;	#提供服务的端口
+        server_name  localhost;	#提供服务的主机名称
+        access_log  logs/access_json.log  json;
+        location / {			#第一个localtion区块开始
+            root   html;		#站点的根目录，相对于nginx的安装目录
+            index  index.html index.htm;	#默认首页文件
+        }
+        error_page   500 502 503 504  /50x.html;	#出现对应的http状态码，使用50x.html
+        location = /50x.html {
+            root   html;
+        }
+    }
+}
+测试
+input{
+    file{
+        path => "/application/nginx/logs/access_json.log"
+        codec => "json"
+    }
+}
+output{
+    stdout {
+        codec => "rubydebug"
+    }
+}
+
+将配置加入到all中
+
+input{
+    file{
+        path => "/application/nginx/logs/access_json.log"
+        codec => "json"
+        type => "nginx-web"
+        start_position => "beginning"
+    }
+}
+output{
+    if [type] == "nginx-web" {
+        elasticsearch {
+            hosts => [ "192.168.200.21:9200" ]
+            index => "nginx-web-%{+YYYY.MM.dd}"
+        }
+    }
+}
+rsyslog日志
+控制台编写测试
+vim 3-syslog.conf
+input {
+syslog {
+    type =>”system-syslog”
+    host =>”192.168.200.21”
+    port =>”514”
+}
+}
+output {
+stdout {
+    codec => “rubydebug”
+}
+}
+设置rsyslog服务，让其将日志发送到514端口
+ 90 *.* @@192.168.200.21:514
+systemctl restart rsyslog
+logger “test111”
+添加到总配置
+TCP日志
+vim 4-tcp.conf
+input {
+tcp {
+   host =>”192.168.200.21”
+       port =>”6666”
+    }
+}
+output {
+stdout {
+    codec => “rubydebug”
+}
+
+}
+启动测试
+nc 192.168.200.21 6666 </etc/hosts
+Filter-grok
+https://www.elastic.co/guide/en/logstash/5.2/plugins-filters-grok.html
+
+正则表达式位置:/usr/local/logstash/vendor/bundle/jruby/1.9/gems/logstash-patterns-core-4.0.2/patterns/
+
+mysql的slow-log
+vim  5-mysql-slow.conf
+ipput {
+   file  {
+     path =>”/root/slow.log”
+
+   }
+}
+logstash之消息队列解耦
+reids
+yum install -y redis
+vim /etc/resid.conf
+修改后台运行 daemon yes
+修改监听ip bind 192.168.200.21
+
+写入redis
+标准输入流写入redis
+[root@lnmp02 logstash]vim 1-stdinToRedis.conf
+input {
+    stdin {}
+}
+output {
+        redis {
+                host =>"192.168.200.23"
+                port =>"6379"
+                db =>"6"
+                data_type =>"list"
+                key =>"logstashToRedis"
+        }
+}
+从日志文件到redis
+[root@lnmp02 logstash]vim 2-logfileToRedis.conf
+input {
+    file{
+	path => "/application/nginx/logs/access_json.log"
+	type => "lnmp-nginx"
+	start_position => "beginning"
+    } 
+}
+output {
+     if [type] == "lnmp-nginx" {
+	redis {
+		host =>"192.168.200.23"
+		port =>"6379"
+		db =>"6"
+		data_type =>"list"
+		key =>"lnmp-nginx"
+	}
+    }
+     if [type] == "lnmp-tomcat" {
+        redis { 
+                host =>"192.168.200.23"
+                port =>"6379"
+                db =>"6"
+                data_type =>"list"
+                key =>"lnmp-tomcat"
+        }
+    }
+}
+
+从redis中读取
+[elk@elk-node1 logstash]$  vim 6-redisToStdout.conf
+
+[elk@elk-node1 logstash]$  vim 6-redisToStdout.conf
+input{
+	redis {
+		type => "lnmp-nginx"
+		host =>"192.168.200.23"
+		port =>"6379"
+		db =>"6"
+		data_type =>"list"
+		key =>"lnmp-nginx"
+	}
+	redis {
+		type => "lnmp-tomcat"
+		host =>"192.168.200.23"
+		port =>"6379"
+		db =>"6"
+		data_type =>"list"
+		key =>"lnmp-tomcat"
+	}
+}
+output {
+	 if [type] == "lnmp-nginx" {
+		elasticsearch {
+            hosts => [ "192.168.200.21:9200" ]
+            index => "lnmp-nginx-%{+YYYY.MM.dd}"
+		}
+	 }
+	 if [type] == "lnmp-tomcat" {
+		elasticsearch {
+            hosts => [ "192.168.200.21:9200" ]
+            index => "lnmp-tomcat-%{+YYYY.MM.dd}"
+		}
+	 }
+}
+架构调整
+首先将又有logstash收集写入redis，其他logstash再从redis中获取
+logstashToRedis.conf
+input{
+     file{
+        path => "/var/log/messages"
+        type => "system"
+        start_position => "beginning"
+      }
+}
+output{
+    if [type] == "system" {
+    redis {
+        host =>”192.168.200.21”
+        port =>” 6379”
+        db =>”6”
+        data_type =>”list”
+        key=”system”
+    }
+}
+}
+redisToES.conf
+input{
+      redis {
+        type =>”system”
+        host =>”192.168.200.21”
+        port =>” 6379”
+        db =>”6”
+        data_type =>”list”
+        key=”system”
+}
+}
+output {
+ if [type] == "system" {
+        elasticsearch {
+            hosts => [ "192.168.200.21:9200" ]
+            index => "system-%{+YYYY.MM.dd}" 
+        }
+    }
+}
+
+测试nginx
+ab -n10000 -c1 http://192.168.200.21
+10000个请求 1个并发
+
+测试rsyslog
+循环logger
+
+redis-->rabbitmq--kafka(有点重)
+kibana
+安装
+[root@elk-node1 src]# tar -zxf /usr/local/src/kibana-5.2.2-linux-x86_64.tar.gz -C /usr/local/
+[root@elk-node1 src]# ln -s /usr/local/kibana-5.2.2-linux-x86_64 /usr/local/kibana
+vim config/kibana.yml
+server.port: 5601
+server.host: "0.0.0.0"
+elasticsearch.url: "http://192.168.200.21:9200"
+kibana.index: ".kibana"
