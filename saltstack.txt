@@ -1,0 +1,36 @@
+设置主机名称
+hostnamectl set-hostname salt-master
+
+[root@salt-master ~]# vim /etc/hosts
+192.168.200.30 salt-master
+
+[root@salt-master ~]# rpm --import https://repo.saltstack.com/yum/redhat/6/x86_64/latest/SALTSTACK-GPG-KEY.pub
+[root@salt-master ~]# vim /etc/yum.repos.d/saltstack.repo
+
+[saltstack-repo]
+name=SaltStack repo for RHEL/CentOS $releasever
+baseurl=https://repo.saltstack.com/yum/redhat/$releasever/$basearch/latest
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.saltstack.com/yum/redhat/$releasever/$basearch/latest/SALTSTACK-EL5-GPG-KEY.pub
+
+yum clean expire-cache
+我没有执行yum update，直接
+yum install salt-master
+yum install salt-minion
+
+加入开机启动
+root@salt-master ~]# vim /etc/rc.local
+systemctl start salt-master
+systemctl start salt-minion
+
+vim /etc/salt/minion
+16 master: 192.168.200.30
+
+cd /etc/salt/pki/master/
+[root@salt-master master]# salt-key
+salt-key -a salt-master
+选择Y接受
+====远程执行====
+salt 'salt-master' test.ping
+salt '*' cmd.run 'uptime'
