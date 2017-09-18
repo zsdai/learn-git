@@ -1,3 +1,4 @@
+# flume
 ## 修改网卡，设置IP地址  
 vim /etc/sysconfig/network-scripts/ifcfg-ens33    
 `IPADDR="192.168.200.24"`  
@@ -75,7 +76,10 @@ hello Flume!
 cat /tmp/log/flume/1447671188760-2  
 hello world!  
 hello Flume!  
- 
-
-
+# kafka
+## 安装kafka
+wget http://mirrors.cnnic.cn/apache/kafka/0.10.0.1/kafka_2.10-0.10.0.1.tgz  
+tar zxf /usr/local/src/kafka_2.10-0.10.0.1.tgz -C /usr/local/  
+ln -s /usr/local/kafka_2.10-0.10.0.1 /usr/local/kafka  
+## 启动
 
