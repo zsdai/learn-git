@@ -59,6 +59,23 @@ vim /usr/local/flume/conf/flume-conf.properties
 `# In this case, it specifies the capacity of the memory channel`  
 `#也可以指定sink或source的其他配置属性的值`  
 `agent.channels.c1.capacity = 100`  
+##启动测试
+1. 建立输出目录  
+mkdir -p /tmp/log/flume  
+2. 启动服务  
+cd /usr/local/flume/  
+bin/flume-ng agent --conf conf -f conf/flume-conf.properties -n agent&  
+3. 发送数据  
+telnet 192.168.200.24 8888 
+输入  
+hello world!  
+hello Flume!  
+4. 查看数据文件 查看 /tmp/log/flume 目录文件:
+5. 文件名不同，需要根据实际情况修改和查看  
+cat /tmp/log/flume/1447671188760-2  
+hello world!  
+hello Flume!  
+ 
 
 
 
