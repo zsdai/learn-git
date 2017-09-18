@@ -18,9 +18,9 @@ scp jdk-8u144-linux-x64.tar.gz root@192.168.200.24:/usr/local/src/
 tar zxvf /usr/local/src/jdk-8u144-linux-x64.tar.gz -C /usr/local/  
 ln -s /usr/local/jdk1.8.0_144 /usr/local/jdk  
 =##################环境变量配置#############  
-`export JAVA_HOME=/usr/local/jdk` 
+`export JAVA_HOME=/usr/local/jdk`  
 `export JRE_HOME=$JAVA_HOME/jre`  
-`export CLASSPATH=$JAVA_HOME/lib:$JRE_HOME/lib:$CLASSPATH` 
+`export CLASSPATH=$JAVA_HOME/lib:$JRE_HOME/lib:$CLASSPATH`  
 `export PATH=$JAVA_HOME/bin:$JRE_HOME/bin:$PATH`  
 source /etc/profile  
 java -version  
