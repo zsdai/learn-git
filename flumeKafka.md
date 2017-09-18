@@ -59,7 +59,7 @@ vim /usr/local/flume/conf/flume-conf.properties
 `# In this case, it specifies the capacity of the memory channel`  
 `#也可以指定sink或source的其他配置属性的值`  
 `agent.channels.c1.capacity = 100`  
-##启动测试
+## 启动测试
 1. 建立输出目录  
 mkdir -p /tmp/log/flume  
 2. 启动服务  
