@@ -378,6 +378,9 @@ yum linux里的包管理器，yum帮助解决依赖问题
 	例子：yum install tree -y
 	下载tree包，然后调用rpm命令安装tree包，如果有依赖，帮你下载安装。
 	 yum remove tree #千万不要用，会删除依赖
+	 
+修改vim /etc/yum.conf，keepcache=0表示yum安装后删除rpm包，=1表示下载后不删除缓存。
+	 
 --------------------------------------------------------------------------------
 rpm 
 	-ivh -i 安装 v 显示详情 h显示进度
